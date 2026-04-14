@@ -1,0 +1,14 @@
+# Dependencies
+node_modules/
+
+# Environment secrets – NEVER commit this
+.env
+
+# Logs
+logs/
+*.log
+
+# OS / editor noise
+.DS_Store
+.vscode/
+*.swp
