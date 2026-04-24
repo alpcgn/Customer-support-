@@ -267,6 +267,19 @@ curl -X POST http://localhost:3000/webhook/ticket \
 
 ---
 
+## Step 2 Conclusion
+
+Step 2 transforms the system from a **notification-only pipeline** into a proper **ticket management starting point**. With Step 1, tickets were classified and routed to Slack — useful for the support team, but invisible to the customer. Now:
+
+- **Every ticket is persisted** in Google Sheets with a full record: timestamp, sender, message, AI classification, and status. This gives the team a searchable, shareable log without needing a dedicated database.
+- **Every customer gets an immediate response** — a professional acknowledgment email with their unique ticket ID, so they know their message didn't go into a void.
+
+Both features are designed to be **non-blocking and fault-tolerant**. They run in parallel after classification, and if either fails (misconfigured credentials, network issues), the core pipeline still completes. The server never crashes due to a Sheets API timeout or an SMTP rejection.
+
+The architecture is also **opt-in** — you can run the server with zero Google/SMTP configuration and everything from Step 1 continues to work exactly as before. Add the credentials when you're ready, and the new features light up automatically.
+
+---
+
 ## What's Next
 
 | Step | Feature |
