@@ -1,8 +1,8 @@
-# Step 1 – Routing Core
+# Customer Support Automation
 
-> **Customer Support Automation · Phase 1 of 3**
+> **Steps 1 & 2 of 3 — Routing Core + Ticket Intake & Acknowledgment**
 
-Receives incoming support tickets via a **webhook**, uses **OpenAI** to classify them, then routes each ticket to the correct **Slack channel** — automatically.
+Receives incoming support tickets via a **webhook**, uses **OpenAI** to classify them, routes each ticket to the correct **Slack channel**, stores it in **Google Sheets**, and sends a confirmation **email** back to the user — all automatically.
 
 ```
 POST /webhook/ticket
@@ -24,11 +24,13 @@ POST /webhook/ticket
 │  (router.js)      │
 └────────┬──────────┘
          │
-         ▼
-┌───────────────────┐
-│  Slack Notifier   │  sends rich Block Kit message
-│  (slackNotifier)  │
-└───────────────────┘
+    ┌────┴────┐          (parallel)
+    ▼         ▼
+┌────────┐ ┌─────────┐
+│ Store  │ │  Email  │
+│ Ticket │ │  Ack    │
+│(Sheets)│ │(SMTP)   │
+└────────┘ └─────────┘
 ```
 
 ---
@@ -42,6 +44,8 @@ Customer-support-/
 │   ├── classifier.js           # OpenAI ticket classification
 │   ├── router.js               # Category → Slack channel routing
 │   ├── slackNotifier.js        # Slack Block Kit message sender
+│   ├── ticketStore.js          # Google Sheets persistence (Step 2)
+│   ├── emailNotifier.js        # SMTP acknowledgment emails (Step 2)
 │   └── logger.js               # Winston logger (console + file)
 ├── scripts/
 │   └── testWebhook.js          # Fire sample tickets for local testing
@@ -67,7 +71,9 @@ npm install
 cp .env.example .env
 ```
 
-Open `.env` and fill in:
+Open `.env` and fill in the required values:
+
+#### Core (Step 1)
 
 | Variable | Description |
 |---|---|
@@ -79,12 +85,67 @@ Open `.env` and fill in:
 | `SLACK_WEBHOOK_GENERAL` | Slack Incoming Webhook URL for general channel |
 | `SLACK_WEBHOOK_DEFAULT` | Fallback channel if category doesn't match |
 | `SLACK_ONCALL_USER_ID` | Slack User ID to @mention on High urgency tickets |
-| `WEBHOOK_SECRET` | *(Optional)* Secures the endpoint – clients must send this in `x-webhook-secret` header |
+| `WEBHOOK_SECRET` | *(Optional)* Secures the endpoint |
 
-#### How to create a Slack Incoming Webhook
-1. Go to [api.slack.com/apps](https://api.slack.com/apps) → **Create New App** → From Scratch
-2. Under **Features**, enable **Incoming Webhooks**
-3. Click **Add New Webhook to Workspace** → pick a channel → copy the URL
+#### Google Sheets – Ticket Storage (Step 2)
+
+| Variable | Description |
+|---|---|
+| `GOOGLE_SERVICE_ACCOUNT_EMAIL` | Service Account email (e.g. `sa@project.iam.gserviceaccount.com`) |
+| `GOOGLE_PRIVATE_KEY` | The private key from the JSON key file (keep the `\n` escapes) |
+| `GOOGLE_SHEET_ID` | The Sheet ID (from the Google Sheets URL) |
+| `GOOGLE_SHEET_NAME` | Tab name in the sheet (default: `Tickets`) |
+
+#### SMTP – Acknowledgment Emails (Step 2)
+
+| Variable | Description |
+|---|---|
+| `SMTP_HOST` | SMTP server (e.g. `smtp.gmail.com`) |
+| `SMTP_PORT` | Port — `587` (TLS) or `465` (SSL) |
+| `SMTP_USER` | SMTP username / email |
+| `SMTP_PASS` | SMTP password or App Password |
+| `EMAIL_FROM_NAME` | Display name (e.g. `Support Team`) |
+| `EMAIL_FROM_ADDRESS` | From address shown to recipient |
+
+> **Note:** Both Google Sheets and SMTP are optional. If not configured, the server will log warnings but continue to work — tickets will still be classified and routed to Slack.
+
+---
+
+### Setting Up Google Sheets
+
+1. Go to [Google Cloud Console → Service Accounts](https://console.cloud.google.com/iam-admin/serviceaccounts)
+2. Create a new Service Account (or use an existing one)
+3. Go to **Keys** → **Add Key** → **Create new key** → JSON
+4. Download the JSON file — you'll need `client_email` and `private_key`
+5. Enable the **Google Sheets API** in [APIs & Services](https://console.cloud.google.com/apis/library/sheets.googleapis.com)
+6. Create a new Google Sheet (or use an existing one)
+7. **Share the sheet** with your Service Account email (give **Editor** access)
+8. Copy the Sheet ID from the URL: `https://docs.google.com/spreadsheets/d/{THIS_PART}/edit`
+9. Add the values to your `.env` file
+
+The module will automatically create a header row on the first ticket.
+
+**Sheet columns:** Ticket ID | Timestamp | Sender | Subject | Message Body | Source | Category | Urgency | Sentiment | Summary | Suggested Action | Status
+
+---
+
+### Setting Up SMTP (Gmail Example)
+
+1. Go to [Google App Passwords](https://myaccount.google.com/apppasswords)
+2. Generate an App Password for "Mail"
+3. Add to `.env`:
+   ```
+   SMTP_HOST=smtp.gmail.com
+   SMTP_PORT=587
+   SMTP_USER=yourname@gmail.com
+   SMTP_PASS=xxxx-xxxx-xxxx-xxxx
+   EMAIL_FROM_NAME=Support Team
+   EMAIL_FROM_ADDRESS=yourname@gmail.com
+   ```
+
+Works equally well with **SendGrid**, **Mailgun**, **AWS SES**, or any SMTP relay.
+
+---
 
 ### 3. Start the server
 
@@ -145,6 +206,14 @@ x-webhook-secret: your-secret-token
     "routed":  true,
     "channel": "#technical-support"
   },
+  "storage": {
+    "stored": true,
+    "row": 2
+  },
+  "acknowledged": {
+    "sent": true,
+    "messageId": "<abc123@smtp.gmail.com>"
+  },
   "processedAt": "2026-04-14T19:10:00.000Z"
 }
 ```
@@ -202,6 +271,6 @@ curl -X POST http://localhost:3000/webhook/ticket \
 
 | Step | Feature |
 |---|---|
-| ✅ **Step 1** | Routing Core (this repo) |
-| 🔜 **Step 2** | Persistence Layer – store tickets in a DB, SLA tracking, deduplication |
+| ✅ **Step 1** | Routing Core – webhook, AI classification, Slack routing |
+| ✅ **Step 2** | Ticket Intake & Acknowledgment – Google Sheets storage, email confirmation |
 | 🔜 **Step 3** | Auto-Response Engine – draft and send AI replies back to customers |

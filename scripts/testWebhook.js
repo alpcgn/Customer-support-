@@ -97,6 +97,8 @@ async function runTests() {
       console.log(`    Sentiment: ${data.classification.sentiment}`);
       console.log(`    Summary  : ${data.classification.summary}`);
       console.log(`    Routed → : ${data.routing.channel}`);
+      console.log(`    Stored   : ${data.storage?.stored ?? 'N/A'}${data.storage?.row ? ` (row ${data.storage.row})` : ''}`);
+      console.log(`    Email Ack: ${data.acknowledged?.sent ?? 'N/A'}${data.acknowledged?.messageId ? ` (${data.acknowledged.messageId})` : ''}`);
     } catch (err) {
       const msg = err.response?.data || err.message;
       console.error(`❌  Failed [${label}]:`, msg);

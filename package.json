@@ -1,7 +1,7 @@
 {
   "name": "customer-support-routing-core",
   "version": "1.0.0",
-  "description": "Step 1 – Routing Core: Webhook → AI Classifier → Slack Router",
+  "description": "Steps 1–2: Webhook → AI Classifier → Slack Router → Google Sheets + Email Ack",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -12,13 +12,21 @@
     "axios": "^1.7.2",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
+    "googleapis": "^171.4.0",
+    "nodemailer": "^8.0.5",
     "openai": "^4.52.7",
     "winston": "^3.13.1"
   },
   "devDependencies": {
     "nodemon": "^3.1.4"
   },
-  "keywords": ["support", "automation", "webhook", "ai", "slack"],
+  "keywords": [
+    "support",
+    "automation",
+    "webhook",
+    "ai",
+    "slack"
+  ],
   "author": "",
   "license": "MIT"
 }

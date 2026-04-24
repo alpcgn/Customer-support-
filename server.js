@@ -1,13 +1,15 @@
 // ─────────────────────────────────────────────────────────────────
 //  server.js  –  Webhook entry point
-//  Flow: POST /webhook/ticket → classify → route → Slack
+//  Flow: POST /webhook/ticket → classify → route → store → ack
 // ─────────────────────────────────────────────────────────────────
 require('dotenv').config();
 const express         = require('express');
 const crypto          = require('crypto');
-const { classifyTicket } = require('./src/classifier');
-const { routeTicket }    = require('./src/router');
-const logger             = require('./src/logger');
+const { classifyTicket }     = require('./src/classifier');
+const { routeTicket }        = require('./src/router');
+const { storeTicket }        = require('./src/ticketStore');
+const { sendAcknowledgment } = require('./src/emailNotifier');
+const logger                 = require('./src/logger');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -84,6 +86,21 @@ app.post('/webhook/ticket', verifySecret, async (req, res) => {
       ticketId
     );
 
+    // ── Step 3: Store ticket + Send acknowledgment (parallel) ────
+    const ticket = { subject, body, sender, metadata };
+    const [storeResult, emailResult] = await Promise.allSettled([
+      storeTicket(ticketId, ticket, classification),
+      sendAcknowledgment(ticketId, ticket),
+    ]);
+
+    const stored = storeResult.status === 'fulfilled'
+      ? storeResult.value
+      : { stored: false, reason: storeResult.reason?.message };
+
+    const acknowledged = emailResult.status === 'fulfilled'
+      ? emailResult.value
+      : { sent: false, reason: emailResult.reason?.message };
+
     // ── Respond to caller ─────────────────────────────────────────
     const response = {
       ticketId,
@@ -94,15 +111,19 @@ app.post('/webhook/ticket', verifySecret, async (req, res) => {
         summary:         classification.summary,
         suggestedAction: classification.suggestedAction,
       },
-      routing: routeResult,
-      processedAt: new Date().toISOString(),
+      routing:      routeResult,
+      storage:      stored,
+      acknowledged,
+      processedAt:  new Date().toISOString(),
     };
 
     logger.info('Ticket fully processed', {
       ticketId,
-      category: classification.category,
-      urgency:  classification.urgency,
-      channel:  routeResult.channel,
+      category:     classification.category,
+      urgency:      classification.urgency,
+      channel:      routeResult.channel,
+      stored:       stored.stored,
+      emailSent:    acknowledged.sent,
     });
 
     return res.status(200).json(response);
