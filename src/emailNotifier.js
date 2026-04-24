@@ -51,14 +51,27 @@ function isValidEmail(email) {
 }
 
 /**
+ * Escape HTML special characters to prevent XSS in email templates.
+ */
+function escapeHtml(str) {
+  if (!str) return '';
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/**
  * Build an HTML email body for the acknowledgment.
  * @param {string} ticketId
  * @param {object} ticket
  * @returns {string} HTML content
  */
 function buildEmailHTML(ticketId, ticket) {
-  const subject = ticket.subject || 'your message';
-  const senderName = ticket.sender?.split('@')[0] || 'there';
+  const subject = escapeHtml(ticket.subject) || 'your message';
+  const senderName = escapeHtml(ticket.sender?.split('@')[0]) || 'there';
+  const safeTicketId = escapeHtml(ticketId);
 
   return `
 <!DOCTYPE html>
@@ -101,7 +114,7 @@ function buildEmailHTML(ticketId, ticket) {
                       Your Ticket ID
                     </p>
                     <p style="color:#333; font-size:22px; font-weight:700; margin:0; font-family:monospace;">
-                      ${ticketId}
+                      ${safeTicketId}
                     </p>
                   </td>
                 </tr>
@@ -134,7 +147,7 @@ function buildEmailHTML(ticketId, ticket) {
               <p style="color:#999; font-size:12px; line-height:1.6; margin:0;">
                 This is an automated message. Please do not reply directly — 
                 your response may not be monitored.<br>
-                Ticket reference: <code>${ticketId}</code>
+                Ticket reference: <code>${safeTicketId}</code>
               </p>
             </td>
           </tr>

@@ -78,7 +78,8 @@ async function runTests() {
 
   console.log(`\n🧪  Running ${tickets.length} test ticket(s) against ${BASE_URL}\n`);
 
-  for (const { label, payload } of tickets) {
+  for (let i = 0; i < tickets.length; i++) {
+    const { label, payload } = tickets[i];
     console.log(`──────────────────────────────────────`);
     console.log(`📨  Sending [${label.toUpperCase()}] ticket`);
     console.log(`    Subject: "${payload.subject}"`);
@@ -105,7 +106,7 @@ async function runTests() {
     }
 
     // Avoid hammering the OpenAI rate limit between tests
-    if (tickets.indexOf({ label, payload }) < tickets.length - 1) {
+    if (i < tickets.length - 1) {
       await new Promise((r) => setTimeout(r, 1500));
     }
   }

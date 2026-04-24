@@ -30,7 +30,14 @@ function verifySecret(req, res, next) {
   if (!secret) return next(); // no secret configured → open
 
   const incoming = req.headers['x-webhook-secret'] || req.query.secret;
-  if (!incoming || !crypto.timingSafeEqual(Buffer.from(incoming), Buffer.from(secret))) {
+  if (!incoming) {
+    logger.warn('Rejected request – missing webhook secret', { ip: req.ip });
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  const incomingBuf = Buffer.from(incoming);
+  const secretBuf   = Buffer.from(secret);
+  if (incomingBuf.length !== secretBuf.length || !crypto.timingSafeEqual(incomingBuf, secretBuf)) {
     logger.warn('Rejected request – invalid webhook secret', { ip: req.ip });
     return res.status(401).json({ error: 'Unauthorized' });
   }
