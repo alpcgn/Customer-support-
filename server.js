@@ -8,7 +8,7 @@ const crypto          = require('crypto');
 const { classifyTicket }     = require('./src/classifier');
 const { routeTicket }        = require('./src/router');
 const { storeTicket }        = require('./src/ticketStore');
-const { sendAcknowledgment } = require('./src/emailNotifier');
+const { sendAcknowledgment, sendInternalRoutingEmail } = require('./src/emailNotifier');
 const logger                 = require('./src/logger');
 
 const app  = express();
@@ -55,19 +55,10 @@ app.get('/health', (_req, res) => {
 
 // ────────────────────────────────────────────────────────────────
 //  POST /webhook/ticket
-//
-//  Expected body (JSON):
-//  {
-//    "subject":  "Cannot log in to my account",
-//    "body":     "I have been locked out since yesterday...",
-//    "sender":   "user@example.com",
-//    "metadata": { "source": "email", "ticketId": "TICK-001" }   ← optional
-//  }
 // ────────────────────────────────────────────────────────────────
 app.post('/webhook/ticket', verifySecret, async (req, res) => {
   const { subject, body, sender, metadata = {} } = req.body;
 
-  // ── Basic validation ──────────────────────────────────────────
   if (!body && !subject) {
     return res.status(400).json({
       error: 'Bad Request',
@@ -75,50 +66,66 @@ app.post('/webhook/ticket', verifySecret, async (req, res) => {
     });
   }
 
-  // Generate a deterministic short ID for this ticket
-  const ticketId =
-    metadata.ticketId ||
-    `TKT-${Date.now().toString(36).toUpperCase()}`;
-
+  const ticketId = metadata.ticketId || `TKT-${Date.now().toString(36).toUpperCase()}`;
   logger.info('Ticket received', { ticketId, sender, subject });
 
   try {
-    // ── Step 1: AI Classification ────────────────────────────────
+    // ── Step 1: AI Classification & Auto-Response Drafting ───────
     const classification = await classifyTicket({ subject, body, sender, metadata });
 
-    // ── Step 2: Route to Slack ────────────────────────────────────
+    // ── Step 2: Routing (Slack or determination for Email) ───────
     const routeResult = await routeTicket(
       { subject, body, sender, metadata },
       classification,
       ticketId
     );
 
-    // ── Step 3: Store ticket + Send acknowledgment (parallel) ────
+    // ── Step 3: Persistence, Acknowledgment, and Routing Emails ──
     const ticket = { subject, body, sender, metadata };
-    const [storeResult, emailResult] = await Promise.allSettled([
+    
+    // Build promises for parallel execution
+    const tasks = [
       storeTicket(ticketId, ticket, classification),
-      sendAcknowledgment(ticketId, ticket),
-    ]);
+      sendAcknowledgment(ticketId, ticket, classification)
+    ];
 
-    const stored = storeResult.status === 'fulfilled'
-      ? storeResult.value
-      : { stored: false, reason: storeResult.reason?.message };
+    // If routed via email, add that task too
+    if (routeResult.type === 'email') {
+      tasks.push(sendInternalRoutingEmail(ticketId, ticket, classification, routeResult.recipient));
+    }
 
-    const acknowledged = emailResult.status === 'fulfilled'
-      ? emailResult.value
-      : { sent: false, reason: emailResult.reason?.message };
+    const results = await Promise.allSettled(tasks);
+
+    const stored = results[0].status === 'fulfilled'
+      ? results[0].value
+      : { stored: false, reason: results[0].reason?.message };
+
+    const acknowledged = results[1].status === 'fulfilled'
+      ? results[1].value
+      : { sent: false, reason: results[1].reason?.message };
+
+    let routedInternally = { sent: false };
+    if (routeResult.type === 'email') {
+      routedInternally = results[2].status === 'fulfilled'
+        ? results[2].value
+        : { sent: false, reason: results[2].reason?.message };
+    }
 
     // ── Respond to caller ─────────────────────────────────────────
     const response = {
       ticketId,
       classification: {
         category:        classification.category,
-        urgency:         classification.urgency,
+        priority:        classification.priority,
         sentiment:       classification.sentiment,
         summary:         classification.summary,
         suggestedAction: classification.suggestedAction,
+        draftResponse:   classification.draftResponse,
       },
-      routing:      routeResult,
+      routing: {
+        ...routeResult,
+        internallySent: routedInternally.sent,
+      },
       storage:      stored,
       acknowledged,
       processedAt:  new Date().toISOString(),
@@ -127,8 +134,8 @@ app.post('/webhook/ticket', verifySecret, async (req, res) => {
     logger.info('Ticket fully processed', {
       ticketId,
       category:     classification.category,
-      urgency:      classification.urgency,
-      channel:      routeResult.channel,
+      priority:     classification.priority,
+      routeType:    routeResult.type,
       stored:       stored.stored,
       emailSent:    acknowledged.sent,
     });
@@ -142,7 +149,6 @@ app.post('/webhook/ticket', verifySecret, async (req, res) => {
       stack: err.stack,
     });
 
-    // Return a 500 but still surface a readable message
     return res.status(500).json({
       error: 'Internal Server Error',
       message: err.message,

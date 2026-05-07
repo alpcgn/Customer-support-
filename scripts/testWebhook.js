@@ -14,7 +14,7 @@ const axios = require('axios');
 const BASE_URL = `http://localhost:${process.env.PORT || 3000}`;
 const SECRET   = process.env.WEBHOOK_SECRET || '';
 
-// ── Sample tickets covering every category / urgency combination ──
+// ── Sample tickets covering every category / priority combination ──
 const SAMPLE_TICKETS = [
   {
     label: 'billing',
@@ -23,15 +23,6 @@ const SAMPLE_TICKETS = [
       body: 'Hello, I noticed two identical charges of $49.99 on my credit card statement dated April 1st. My account is under the Pro plan. Please refund the duplicate charge immediately.',
       sender: 'jane.doe@example.com',
       metadata: { source: 'email' },
-    },
-  },
-  {
-    label: 'technical',
-    payload: {
-      subject: 'API returning 502 Bad Gateway in production',
-      body: 'Our integration with your API has been returning 502 errors for the past 30 minutes. This is blocking our entire checkout flow. Error: {"code":502,"message":"Bad Gateway"}. Please advise urgently.',
-      sender: 'dev@acmecorp.io',
-      metadata: { source: 'api', priority: 'urgent' },
     },
   },
   {
@@ -44,7 +35,7 @@ const SAMPLE_TICKETS = [
     },
   },
   {
-    label: 'feature',
+    label: 'feature request',
     payload: {
       subject: 'Feature request: CSV export for reports',
       body: 'It would be very helpful to have a CSV export button on the Reports page. Currently we have to copy-paste data manually into Excel. Our whole finance team uses this weekly.',
@@ -67,11 +58,11 @@ const SAMPLE_TICKETS = [
 async function runTests() {
   const filter = process.argv[2]; // optional: filter by label
   const tickets = filter
-    ? SAMPLE_TICKETS.filter((t) => t.label === filter)
+    ? SAMPLE_TICKETS.filter((t) => t.label.includes(filter))
     : SAMPLE_TICKETS;
 
   if (tickets.length === 0) {
-    console.error(`❌  No ticket found with label "${filter}"`);
+    console.error(`❌  No ticket found with label matching "${filter}"`);
     console.error(`    Available: ${SAMPLE_TICKETS.map((t) => t.label).join(', ')}`);
     process.exit(1);
   }
@@ -94,12 +85,17 @@ async function runTests() {
 
       console.log(`✅  HTTP ${status} – Ticket ID: ${data.ticketId}`);
       console.log(`    Category : ${data.classification.category}`);
-      console.log(`    Urgency  : ${data.classification.urgency}`);
+      console.log(`    Priority : ${data.classification.priority}`);
       console.log(`    Sentiment: ${data.classification.sentiment}`);
       console.log(`    Summary  : ${data.classification.summary}`);
-      console.log(`    Routed → : ${data.routing.channel}`);
+      console.log(`    Route    : ${data.routing.type} → ${data.routing.channel || data.routing.label}`);
+      console.log(`    Internally Routed: ${data.routing.internallySent}`);
       console.log(`    Stored   : ${data.storage?.stored ?? 'N/A'}${data.storage?.row ? ` (row ${data.storage.row})` : ''}`);
       console.log(`    Email Ack: ${data.acknowledged?.sent ?? 'N/A'}${data.acknowledged?.messageId ? ` (${data.acknowledged.messageId})` : ''}`);
+      console.log(`    AI Draft Response:`);
+      console.log(`    -----------------`);
+      console.log(`    ${data.classification.draftResponse}`);
+      console.log(`    -----------------`);
     } catch (err) {
       const msg = err.response?.data || err.message;
       console.error(`❌  Failed [${label}]:`, msg);

@@ -66,12 +66,14 @@ function escapeHtml(str) {
  * Build an HTML email body for the acknowledgment.
  * @param {string} ticketId
  * @param {object} ticket
+ * @param {object} classification
  * @returns {string} HTML content
  */
-function buildEmailHTML(ticketId, ticket) {
+function buildEmailHTML(ticketId, ticket, classification) {
   const subject = escapeHtml(ticket.subject) || 'your message';
   const senderName = escapeHtml(ticket.sender?.split('@')[0]) || 'there';
   const safeTicketId = escapeHtml(ticketId);
+  const aiDraft = classification?.draftResponse || "Thank you for reaching out. We've received your support request and a member of our team will get back to you shortly.";
 
   return `
 <!DOCTYPE html>
@@ -102,8 +104,7 @@ function buildEmailHTML(ticketId, ticket) {
                 Hi <strong>${senderName}</strong>,
               </p>
               <p style="color:#333; font-size:16px; line-height:1.6; margin:0 0 24px;">
-                Thank you for reaching out. We've received your support request regarding
-                <strong>"${subject}"</strong> and a member of our team will get back to you shortly.
+                ${aiDraft}
               </p>
 
               <!-- Ticket ID Card -->
@@ -163,14 +164,14 @@ function buildEmailHTML(ticketId, ticket) {
 /**
  * Build a plain-text fallback body.
  */
-function buildEmailText(ticketId, ticket) {
-  const subject = ticket.subject || 'your message';
+function buildEmailText(ticketId, ticket, classification) {
   const senderName = ticket.sender?.split('@')[0] || 'there';
+  const aiDraft = classification?.draftResponse || "Thank you for reaching out. We've received your support request and a member of our team will get back to you shortly.";
 
   return [
     `Hi ${senderName},`,
     '',
-    `Thank you for reaching out. We've received your support request regarding "${subject}" and a member of our team will get back to you shortly.`,
+    aiDraft,
     '',
     `Your Ticket ID: ${ticketId}`,
     '',
@@ -193,11 +194,12 @@ function buildEmailText(ticketId, ticket) {
 /**
  * Send an acknowledgment email to the ticket sender.
  *
- * @param {string} ticketId  - Unique ticket identifier
- * @param {object} ticket    - { subject, body, sender, metadata }
+ * @param {string} ticketId        - Unique ticket identifier
+ * @param {object} ticket          - { subject, body, sender, metadata }
+ * @param {object} classification  - AI classification with draftResponse
  * @returns {Promise<{ sent: boolean, messageId?: string }>}
  */
-async function sendAcknowledgment(ticketId, ticket) {
+async function sendAcknowledgment(ticketId, ticket, classification) {
   const transporter = getTransporter();
 
   if (!transporter) {
@@ -222,8 +224,8 @@ async function sendAcknowledgment(ticketId, ticket) {
     from: `"${FROM_NAME}" <${FROM_ADDRESS}>`,
     to: ticket.sender,
     subject,
-    text: buildEmailText(ticketId, ticket),
-    html: buildEmailHTML(ticketId, ticket),
+    text: buildEmailText(ticketId, ticket, classification),
+    html: buildEmailHTML(ticketId, ticket, classification),
   };
 
   try {
@@ -246,4 +248,61 @@ async function sendAcknowledgment(ticketId, ticket) {
   }
 }
 
-module.exports = { sendAcknowledgment };
+/**
+ * Forward a ticket to an internal department.
+ *
+ * @param {string} ticketId       - Unique ticket identifier
+ * @param {object} ticket         - { subject, body, sender, metadata }
+ * @param {object} classification - AI classification
+ * @param {string} recipientEmail - Department email address
+ * @returns {Promise<{ sent: boolean, messageId?: string }>}
+ */
+async function sendInternalRoutingEmail(ticketId, ticket, classification, recipientEmail) {
+  const transporter = getTransporter();
+
+  if (!transporter || !recipientEmail) {
+    return { sent: false, reason: 'SMTP or recipient not configured' };
+  }
+
+  const subject = `[ROUTED] ${classification.category.toUpperCase()} – Ticket #${ticketId}: ${ticket.subject || '(no subject)'}`;
+
+  const text = [
+    `A new ticket has been routed to your department.`,
+    '',
+    `Category: ${classification.category}`,
+    `Priority: ${classification.priority}`,
+    `Sentiment: ${classification.sentiment}`,
+    '',
+    `From: ${ticket.sender}`,
+    `Subject: ${ticket.subject}`,
+    '',
+    `Message:`,
+    ticket.body,
+    '',
+    `AI Summary:`,
+    classification.summary,
+    '',
+    `Suggested Action:`,
+    classification.suggestedAction,
+    '',
+    `Ticket ID: ${ticketId}`,
+  ].join('\n');
+
+  const mailOptions = {
+    from: `"${FROM_NAME} Router" <${FROM_ADDRESS}>`,
+    to: recipientEmail,
+    subject,
+    text,
+  };
+
+  try {
+    const info = await transporter.sendMail(mailOptions);
+    logger.info('Internal routing email sent', { ticketId, to: recipientEmail });
+    return { sent: true, messageId: info.messageId };
+  } catch (err) {
+    logger.error('Failed to send internal routing email', { ticketId, to: recipientEmail, error: err.message });
+    return { sent: false, reason: err.message };
+  }
+}
+
+module.exports = { sendAcknowledgment, sendInternalRoutingEmail };

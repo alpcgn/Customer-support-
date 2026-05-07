@@ -1,8 +1,8 @@
 # Customer Support Automation
 
-> **Steps 1 & 2 of 3 — Routing Core + Ticket Intake & Acknowledgment**
+> **Steps 1, 2 & 3 — Routing Core + Ticket Intake & Auto-Response Engine**
 
-Receives incoming support tickets via a **webhook**, uses **OpenAI** to classify them, routes each ticket to the correct **Slack channel**, stores it in **Google Sheets**, and sends a confirmation **email** back to the user — all automatically.
+Receives incoming support tickets via a **webhook**, uses **OpenAI** to classify them and draft a response, routes each ticket to the correct **Slack channel** or **Email inbox**, stores it in **Google Sheets**, and sends an AI-powered confirmation **email** back to the user — all automatically.
 
 ```
 POST /webhook/ticket
@@ -14,23 +14,23 @@ POST /webhook/ticket
          │
          ▼
 ┌───────────────────┐
-│  AI Classifier    │  OpenAI → category, urgency, sentiment, summary
-│  (classifier.js)  │
+│  AI Engine        │  OpenAI → category, priority, sentiment, 
+│  (classifier.js)  │  summary, suggestedAction, draftResponse
 └────────┬──────────┘
          │
          ▼
 ┌───────────────────┐
-│  Router           │  maps category → Slack webhook URL
+│  Router           │  maps category → Slack or Internal Email
 │  (router.js)      │
 └────────┬──────────┘
          │
-    ┌────┴────┐          (parallel)
-    ▼         ▼
-┌────────┐ ┌─────────┐
-│ Store  │ │  Email  │
-│ Ticket │ │  Ack    │
-│(Sheets)│ │(SMTP)   │
-└────────┘ └─────────┘
+    ┌────┴────────────────┐          (parallel)
+    ▼          ▼          ▼
+┌────────┐ ┌─────────┐ ┌─────────┐
+│ Store  │ │ AI Auto-│ │ Internal│
+│ Ticket │ │ Response│ │ Routing │
+│(Sheets)│ │ (Email) │ │ (Email) │
+└────────┘ └─────────┘ └─────────┘
 ```
 
 ---
@@ -106,6 +106,13 @@ Open `.env` and fill in the required values:
 | `SMTP_PASS` | SMTP password or App Password |
 | `EMAIL_FROM_NAME` | Display name (e.g. `Support Team`) |
 | `EMAIL_FROM_ADDRESS` | From address shown to recipient |
+
+#### Enhanced Routing (Step 3)
+
+| Variable | Description |
+|---|---|
+| `FINANCE_EMAIL` | Destination for `billing` tickets |
+| `SHARED_INBOX_EMAIL` | Destination for `general` tickets |
 
 > **Note:** Both Google Sheets and SMTP are optional. If not configured, the server will log warnings but continue to work — tickets will still be classified and routed to Slack.
 
@@ -222,16 +229,15 @@ x-webhook-secret: your-secret-token
 
 ## Routing Map
 
-| AI Category | Slack Channel env var |
-|---|---|
-| Billing | `SLACK_WEBHOOK_BILLING` |
-| Technical | `SLACK_WEBHOOK_TECHNICAL` |
-| Bug | `SLACK_WEBHOOK_BUG` |
-| Feature Request | `SLACK_WEBHOOK_TECHNICAL` (shared) |
-| General | `SLACK_WEBHOOK_GENERAL` |
-| *(unknown)* | `SLACK_WEBHOOK_DEFAULT` |
+| AI Category | Priority | Route Target |
+|---|---|---|
+| billing | low/medium/high | `FINANCE_EMAIL` (Email) |
+| bug | low/medium/high | `SLACK_WEBHOOK_BUG` (Slack) |
+| feature request | low/medium/high | `SLACK_WEBHOOK_TECHNICAL` (Slack) |
+| general | low/medium/high | `SHARED_INBOX_EMAIL` (Email) |
+| *(unknown)* | low/medium/high | `SLACK_WEBHOOK_DEFAULT` (Slack) |
 
-High urgency tickets additionally @mention the user in `SLACK_ONCALL_USER_ID`.
+High priority tickets additionally @mention the user in `SLACK_ONCALL_USER_ID` if routed to Slack.
 
 ---
 
@@ -273,4 +279,4 @@ curl -X POST http://localhost:3000/webhook/ticket \
 |---|---|
 | ✅ **Step 1** | Routing Core – webhook, AI classification, Slack routing |
 | ✅ **Step 2** | Ticket Intake & Acknowledgment – Google Sheets storage, email confirmation |
-| 🔜 **Step 3** | Auto-Response Engine – draft and send AI replies back to customers |
+| ✅ **Step 3** | Auto-Response Engine – draft and send AI replies back to customers |
